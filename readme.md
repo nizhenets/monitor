@@ -1,31 +1,54 @@
-# Monitor Script
+# Monitor Sistemi
 
-This script automates the process of downloading and setting up necessary files with real-time status updates via Discord webhooks.
+Bu proje, ekran görüntüleri alma, klavye etkinliklerini kaydetme ve sistem ses kaydı yapma yeteneklerine sahip bir izleme sistemidir.
 
-## Features
+## Bileşenler
 
-- Downloads Python.zip from GitHub repository
-- Downloads and installs 7-Zip
-- Extracts Python.zip using 7-Zip
-- Sends real-time status updates to a Discord webhook
-- Uses a queue system to send messages with 2-second intervals
-- Cleans up temporary files after completion
+1. **monitor.py** - Ana izleme sistemi. Ekran görüntüleri alma, tuş vuruşlarını kaydetme, fare hareketlerini izleme ve pano değişikliklerini takip etme işlevlerini içerir.
 
-## Requirements
+2. **record_system_audio.py** - Sistem seslerini ve mikrofonu kaydeden bağımsız modül.
 
-- Windows OS
-- Internet connection
-- Discord webhook URL (configured in the script)
+3. **config_audio.py** - Ses kayıt sistemi için yapılandırma ayarları.
 
-## How it Works
+## Yapılandırma
 
-1. The script sets up a webhook queue system that sends messages at 2-second intervals
-2. Downloads Python.zip and 7-Zip installer to the %appdata% folder
-3. Installs 7-Zip with appropriate waiting periods
-4. Extracts Python.zip using the installed 7-Zip
-5. Cleans up temporary files
-6. Reports all actions via Discord webhook
+Sistemin davranışını özelleştirmek için `config_audio.py` dosyasını düzenleyebilirsiniz. Bu dosya, kayıt süresi, ses kalitesi, Discord webhook URL'leri gibi ses kaydı ile ilgili tüm ayarları içerir.
 
-## Usage
+### Önemli Ayarlar
 
-Simply run the `monitor.cmd` file as administrator for proper installation.
+- `DEFAULT_RECORDING_DURATION`: Saniye cinsinden her ses kaydının süresi
+- `SEND_MIXED_AUDIO`: Mikrofon ve sistem sesinin karışımını gönderme seçeneği
+- `SEND_MIC_AUDIO`: Sadece mikrofon sesini gönderme seçeneği
+- `SEND_SYSTEM_AUDIO`: Sadece sistem sesini gönderme seçeneği
+- `AUDIO_WEBHOOK_URL`: Discord webhook URL'si
+
+## Kurulum ve Çalıştırma
+
+1. Gerekli paketleri yükleyin:
+   ```
+   pip install pyautogui pynput mss numpy Pillow psutil screeninfo requests soundcard soundfile pyaudio pydub
+   ```
+
+2. `monitor.py` dosyasını çalıştırın:
+   ```
+   python monitor.py
+   ```
+
+3. Test modunda ses kaydı yapmak için:
+   ```
+   python record_system_audio.py --test
+   ```
+
+## Sorun Giderme
+
+Ses kaydı çalışmazsa:
+
+1. `audio_record_log.txt` ve `audio_crash_log.txt` dosyalarını kontrol edin
+2. FFmpeg kurulu olduğundan emin olun veya `FFMPEG_AUTO_DOWNLOAD` ayarını `True` olarak ayarlayın
+3. Sistem ses ayarlarında "Stereo Mix" veya benzer bir sistem ses kaynağı etkinleştirin
+
+## Ek Bilgiler
+
+- Sistem, normal koşullarda otomatik olarak yeniden başlatılır
+- Ses kaydı ve ekran görüntüleri birbirinden bağımsız çalışır
+- Tüm log dosyaları proje klasöründe saklanır
