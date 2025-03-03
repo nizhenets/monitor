@@ -4,7 +4,7 @@ Bu dosyayı düzenleyerek ses kaydı davranışını özelleştirebilirsiniz.
 """
 
 # Kayıt ayarları
-DEFAULT_RECORDING_DURATION = 60  # Saniye cinsinden kayıt süresi
+DEFAULT_RECORDING_DURATION = 30  # Saniye cinsinden kayıt süresi (60'dan 30'a düşürüldü)
 SAMPLE_RATE = 22050             # Örnek hızı (düşük değer = küçük dosya boyutu)
 MP3_BITRATE = 32                # MP3 bit hızı (düşük değer = küçük dosya boyutu)
 BIT_DEPTH = 16                  # WAV dosyaları için bit derinliği (16 veya 24)
@@ -35,8 +35,8 @@ CLEANUP_OLD_FILES = True        # Eski ses dosyalarını otomatik olarak temizle
 CLEANUP_AGE_HOURS = 2           # Bu saatten eski dosyaları temizle (2 saat = 7200 saniye)
 
 # Ses ayarları
-MIC_BOOST = 3.0                 # Mikrofon ses yüksekliği çarpanı (2.0'dan 3.0'a artırıldı)
-SYSTEM_AUDIO_VOLUME = 0.8       # Sistem ses yüksekliği çarpanı (0.6'dan 0.8'e artırıldı)
+MIC_BOOST = 1.5                 # Mikrofon ses yüksekliği çarpanı (5.0'dan 1.5'e düşürüldü)
+SYSTEM_AUDIO_VOLUME = 2.0       # Sistem ses yüksekliği çarpanı (0.5'den 2.0'ye artırıldı)
 NORMALIZE_AUDIO = True          # Ses seviyelerini otomatik olarak normalleştir
 
 # Ses kaydı hatalarından kurtulma
@@ -45,7 +45,7 @@ ERROR_COOLDOWN = 0             # Hatalar arasında bekleme süresi (saniye)
 SUCCESS_WAIT_TIME = 10          # Başarılı bir kayıttan sonra bekleme süresi (saniye)
 
 # Debug modunu etkinleştir/devre dışı bırak
-DEBUG = False                   # Ayrıntılı log kayıtlarını etkinleştir
+DEBUG = True                    # Sorun giderme için ek bilgiler ve dosyalar oluşturulsun mu?
 TEST_MODE_DURATION = 10         # Test modunda kayıt süresi (saniye)
 
 # Discord mesaj ayarları
@@ -54,8 +54,9 @@ SEND_ERROR_NOTIFICATION = True    # Hatalardan sonra Discord'a bildirim gönder
 
 # Ses cihazı ayarları
 USE_DISCORD_DEVICES = True      # Discord ses cihazlarını kullanmayı dene
-ALTERNATIVE_MIC_KEYWORDS = [    # Alternatif mikrofon cihazlarını bulmak için anahtar kelimeler
-    "mikrofon", "microphone", "headset", "input", "mic", "recording"
+ALTERNATIVE_MIC_KEYWORDS = [    # Alternatif mikrofon cihazlarını bulmak için anahtar kelimeler - genişletildi
+    "mikrofon", "microphone", "headset", "input", "mic", "recording", "mikro", "yaka", 
+    "realtek", "voice", "ses", "sound", "audio", "microfono", "entry"
 ]
 ALTERNATIVE_SPEAKER_KEYWORDS = [ # Alternatif hoparlör cihazlarını bulmak için anahtar kelimeler
     "hoparlor", "speaker", "output", "headphones", "playback", "stereo mix", "what u hear", "loopback"
